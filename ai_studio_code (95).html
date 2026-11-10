@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SnapFix — Screenshot to Code Diff</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Marked.js for Markdown -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Highlight.js for Syntax & Diff Highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              cyan: '#00F0FF',
+              emerald: '#10B981',
+              dark: '#080A0F',
+              card: '#10141E',
+              border: '#1E2638'
+            }
+          },
+          fontFamily: {
+            sans: ['"Inter"', 'sans-serif'],
+            mono: ['"Fira Code"', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { background-color: #07090E; color: #E2E8F0; font-family: 'Inter', sans-serif; }
+    .code-font { font-family: 'Fira Code', monospace; }
+    .hud-border { border: 1px solid #1E2638; }
+    .hud-glow { box-shadow: 0 0 25px rgba(0, 240, 255, 0.08); }
+    pre code.hljs { background-color: #0B0E17 !important; border-radius: 0.5rem; padding: 1rem; border: 1px solid #1E2638; }
+    .pulse-border { animation: pulseBorder 2s infinite; }
+    @keyframes pulseBorder {
+      0%, 100% { border-color: rgba(0, 240, 255, 0.3); }
+      50% { border-color: rgba(0, 240, 255, 0.8); }
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #080A0F; }
+    ::-webkit-scrollbar-thumb { background: #1E2638; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-brand-cyan selection:text-black">
+
+  <!-- NAVBAR -->
+  <header class="border-b border-brand-border bg-[#0B0D14]/90 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-cyan-500 to-emerald-400 flex items-center justify-center text-black font-black text-lg shadow-lg shadow-cyan-500/20">
+          ⚡
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-base tracking-tight text-white font-mono">SnapFix</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-brand-cyan border border-cyan-800">Vision ➔ Code Diff</span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Screenshot error debugger powered by Gemini Multimodal</p>
+        </div>
+      </div>
+
+      <!-- API Configuration -->
+      <div class="flex items-center space-x-3">
+        <div class="relative">
+          <input type="password" id="gemini-api-key" placeholder="Enter Gemini API Key..." 
+            class="bg-[#0D111A] border border-brand-border rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-200 font-mono w-48 sm:w-64 focus:outline-none focus:border-brand-cyan transition" />
+          <button onclick="toggleKeyVisibility()" class="absolute right-2 top-2 text-slate-500 hover:text-slate-300">
+            <i data-lucide="eye" id="eye-icon" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <select id="model-select" class="bg-[#0D111A] border border-brand-border rounded-lg px-2.5 py-1.5 text-xs text-slate-300 font-mono focus:outline-none focus:border-brand-cyan">
+          <option value="gemini-2.5-flash">gemini-2.5-flash (Fastest)</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Fix)</option>
+          <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="max-w-7xl mx-auto p-4 lg:p-6 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: DROP / PASTE / CONTEXT INPUT -->
+    <div class="lg:col-span-5 flex flex-col gap-4">
+      
+      <!-- DROPZONE / SCREENSHOT UPLOAD -->
+      <div id="drop-zone" 
+        class="bg-brand-card hud-border rounded-xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition border-dashed hover:border-brand-cyan group min-h-[260px] relative overflow-hidden">
+        
+        <input type="file" id="file-input" accept="image/*" class="hidden" onchange="handleFileSelect(event)" />
+
+        <!-- Empty state placeholder -->
+        <div id="upload-placeholder" class="flex flex-col items-center gap-3">
+          <div class="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-brand-cyan group-hover:scale-110 group-hover:border-brand-cyan transition duration-200">
+            <i data-lucide="camera" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <p class="text-sm font-semibold text-slate-200">
+              Paste screenshot <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-[11px] font-mono border border-slate-700">Ctrl + V</kbd>
+            </p>
+            <p class="text-xs text-slate-500 mt-1">or drag & drop terminal, browser, or code error image</p>
+          </div>
+          <button type="button" onclick="document.getElementById('file-input').click()" 
+            class="text-xs font-mono text-brand-cyan hover:underline mt-1">Browse files</button>
+        </div>
+
+        <!-- Image Preview Container -->
+        <div id="preview-container" class="hidden w-full flex flex-col items-center gap-2">
+          <div class="relative w-full max-h-56 rounded-lg overflow-hidden border border-slate-800 bg-black/50 flex items-center justify-center">
+            <img id="image-preview" src="" alt="Screenshot" class="max-h-56 object-contain" />
+            <button onclick="clearImage(event)" title="Remove Image"
+              class="absolute top-2 right-2 bg-red-600/80 hover:bg-red-500 text-white p-1.5 rounded-md text-xs shadow-md transition">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+          <span class="text-[11px] text-slate-400 font-mono" id="image-meta">Screenshot ready for analysis</span>
+        </div>
+      </div>
+
+      <!-- OPTIONAL CODE / LOG CONTEXT -->
+      <div class="bg-brand-card hud-border rounded-xl p-4 flex flex-col gap-2">
+        <label class="text-xs font-mono text-slate-400 flex items-center justify-between">
+          <span class="flex items-center gap-1.5"><i data-lucide="file-code" class="w-3.5 h-3.5 text-brand-cyan"></i> Optional: Broken Source File or Context</span>
+          <span class="text-[10px] text-slate-500">Helps refine diff</span>
+        </label>
+        <textarea id="code-context" rows="4" placeholder="// Paste the relevant code file or package version here (optional)..."
+          class="w-full bg-[#090C12] border border-brand-border rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-cyan resize-none"></textarea>
+      </div>
+
+      <!-- ACTION BUTTON -->
+      <button onclick="diagnoseScreenshot()" id="btn-diagnose"
+        class="w-full bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-mono font-bold py-3 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/10 transition active:scale-[0.98]">
+        <i data-lucide="sparkles" class="w-4 h-4"></i> Diagnose Error & Generate Diff
+      </button>
+
+      <!-- Quick sample loader -->
+      <div class="flex items-center justify-between text-xs font-mono text-slate-500 px-1">
+        <span>No screenshot handy?</span>
+        <button onclick="loadSampleError()" class="text-brand-cyan hover:underline flex items-center gap-1">
+          <i data-lucide="play-circle" class="w-3.5 h-3.5"></i> Load Sample Python Error
+        </button>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: DIAGNOSTIC & DIFF RESULTS -->
+    <div class="lg:col-span-7 flex flex-col">
+      <div class="bg-brand-card hud-border rounded-xl p-5 flex-1 flex flex-col min-h-[480px]">
+        
+        <div class="flex items-center justify-between pb-3 border-b border-brand-border">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="terminal" class="w-4 h-4 text-brand-cyan"></i>
+            <h2 class="font-mono font-bold text-sm text-white tracking-wide">DIAGNOSTIC & FIX TERMINAL</h2>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="copyDiff()" id="copy-btn" class="hidden text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-700 flex items-center gap-1 transition">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Diff
+            </button>
+            <span id="status-badge" class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">AWAITING INPUT</span>
+          </div>
+        </div>
+
+        <!-- Output display container -->
+        <div id="output-content" class="flex-1 mt-4 overflow-y-auto text-sm leading-relaxed space-y-4">
+          <div class="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
+            <i data-lucide="bug" class="w-10 h-10 mb-3 text-slate-700"></i>
+            <p class="text-sm font-medium text-slate-400">No error analyzed yet</p>
+            <p class="text-xs text-slate-600 mt-1 max-w-sm">
+              Press <kbd class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px]">Ctrl+V</kbd> anywhere to paste an error screenshot, then run SnapFix.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="border-t border-brand-border bg-[#0B0D14] py-2 px-4 text-center text-xs font-mono text-slate-500">
+    SnapFix • Multimodal Screenshot-to-Code Debugger • lablab.build showcase project
+  </footer>
+
+  <!-- CORE LOGIC JAVASCRIPT -->
+  <script>
+    lucide.createIcons();
+
+    let currentBase64Image = null;
+    let currentMimeType = null;
+    let generatedRawDiff = "";
+
+    // Load saved API key on init
+    const savedKey = localStorage.getItem('snapfix_gemini_key');
+    if (savedKey) document.getElementById('gemini-api-key').value = savedKey;
+    document.getElementById('gemini-api-key').addEventListener('change', (e) => {
+      localStorage.setItem('snapfix_gemini_key', e.target.value.trim());
+    });
+
+    // 1. GLOBAL CLIPBOARD PASTE LISTENER (Ctrl+V anywhere on page)
+    window.addEventListener('paste', (e) => {
+      const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+      for (let item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const file = item.getAsFile();
+          processImageFile(file);
+          break;
+        }
+      }
+    });
+
+    // 2. DRAG AND DROP HANDLERS
+    const dropZone = document.getElementById('drop-zone');
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.add('border-brand-cyan'); });
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.remove('border-brand-cyan'); });
+    });
+    dropZone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        processImageFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    function handleFileSelect(e) {
+      if (e.target.files && e.target.files[0]) {
+        processImageFile(e.target.files[0]);
+      }
+    }
+
+    // Process File to Base64
+    function processImageFile(file) {
+      if (!file.type.startsWith('image/')) return;
+      currentMimeType = file.type;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const fullDataUrl = e.target.result;
+        currentBase64Image = fullDataUrl.split(',')[1];
+        
+        // Show Preview
+        document.getElementById('image-preview').src = fullDataUrl;
+        document.getElementById('upload-placeholder').classList.add('hidden');
+        document.getElementById('preview-container').classList.remove('hidden');
+        document.getElementById('image-meta').innerText = `${file.name || 'Pasted Image'} (${Math.round(file.size / 1024)} KB)`;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearImage(e) {
+      if (e) e.stopPropagation();
+      currentBase64Image = null;
+      currentMimeType = null;
+      document.getElementById('file-input').value = '';
+      document.getElementById('image-preview').src = '';
+      document.getElementById('upload-placeholder').classList.remove('hidden');
+      document.getElementById('preview-container').classList.add('hidden');
+    }
+
+    // Load sample error for testing
+    function loadSampleError() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 200;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0F131C';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#FF5555';
+      ctx.font = '14px monospace';
+      ctx.fillText('Traceback (most recent call last):', 20, 40);
+      ctx.fillText('  File "server.py", line 42, in handle_request', 20, 65);
+      ctx.fillText('    user_id = payload["user"]["id"]', 20, 90);
+      ctx.fillText('KeyError: \'user\' - Expected auth token object payload', 20, 130);
+      
+      const dataUrl = canvas.toDataURL('image/png');
+      currentMimeType = 'image/png';
+      currentBase64Image = dataUrl.split(',')[1];
+      
+      document.getElementById('image-preview').src = dataUrl;
+      document.getElementById('upload-placeholder').classList.add('hidden');
+      document.getElementById('preview-container').classList.remove('hidden');
+      document.getElementById('image-meta').innerText = 'Sample: Python KeyError.png';
+
+      document.getElementById('code-context').value = 
+`def handle_request(payload):
+    # Bug here: payload does not always contain 'user'
+    user_id = payload["user"]["id"]
+    return get_account(user_id)`;
+    }
+
+    // 3. CALL GEMINI MULTIMODAL API
+    async function diagnoseScreenshot() {
+      const apiKey = document.getElementById('gemini-api-key').value.trim();
+      if (!apiKey) {
+        alert("Please provide your Google Gemini API Key at the top!");
+        document.getElementById('gemini-api-key').focus();
+        return;
+      }
+
+      if (!currentBase64Image) {
+        alert("Please paste or upload an error screenshot first!");
+        return;
+      }
+
+      const model = document.getElementById('model-select').value;
+      const optionalContext = document.getElementById('code-context').value.trim();
+
+      const btn = document.getElementById('btn-diagnose');
+      const statusBadge = document.getElementById('status-badge');
+      const outputContainer = document.getElementById('output-content');
+      
+      btn.disabled = true;
+      btn.classList.add('opacity-50');
+      statusBadge.innerText = 'ANALYZING ERROR...';
+      statusBadge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-brand-cyan border border-cyan-800 animate-pulse';
+
+      outputContainer.innerHTML = `
+        <div class="h-full flex flex-col items-center justify-center py-16 space-y-3">
+          <div class="w-8 h-8 border-2 border-brand-cyan border-t-transparent rounded-full animate-spin"></div>
+          <p class="text-xs font-mono text-brand-cyan">Gemini Vision parsing terminal stack trace & code diff...</p>
+        </div>
+      `;
+
+      const promptText = `
+You are an expert developer and automated bug-fix engineer.
+Analyze this error screenshot (terminal error, browser console, stack trace, or compiler error).
+
+${optionalContext ? "Additional Source Code Context provided by developer:\n" + optionalContext : ""}
+
+Output your response strictly formatted in Markdown with the following 4 sections:
+
+### 1. Detected Error & Root Cause
+State the exact error type and a concise explanation (2-3 sentences) of why it happened.
+
+### 2. Code Diff Fix
+Provide the exact fix as a standard Git diff block using \`\`\`diff
+Show removed lines with '-' and added lines with '+'.
+
+### 3. Full Corrected Code File / Block
+Provide the clean, corrected replacement code block with the appropriate language syntax.
+
+### 4. Verification Command
+A single shell or terminal command to test or verify that this error is resolved (e.g. pytest, npm test, restart command).
+`;
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: currentMimeType,
+                    data: currentBase64Image
+                  }
+                },
+                { text: promptText }
+              ]
+            }],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 1500
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error?.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const markdown = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
+
+        generatedRawDiff = markdown;
+
+        // Render Markdown
+        outputContainer.innerHTML = marked.parse(markdown);
+
+        // Highlight code & diff blocks
+        outputContainer.querySelectorAll('pre code').forEach((block) => {
+          hljs.highlightElement(block);
+        });
+
+        statusBadge.innerText = 'FIX GENERATED';
+        statusBadge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800';
+        document.getElementById('copy-btn').classList.remove('hidden');
+
+      } catch (err) {
+        console.error(err);
+        outputContainer.innerHTML = `
+          <div class="p-4 bg-red-950/50 border border-red-800 rounded-lg text-xs font-mono text-red-200">
+            <strong class="text-red-400 block mb-1">Diagnosis Failed:</strong>
+            ${escapeHtml(err.message)}
+          </div>
+        `;
+        statusBadge.innerText = 'ERROR';
+        statusBadge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-red-950 text-red-400 border border-red-800';
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50');
+      }
+    }
+
+    function copyDiff() {
+      if (!generatedRawDiff) return;
+      navigator.clipboard.writeText(generatedRawDiff);
+      const copyBtn = document.getElementById('copy-btn');
+      copyBtn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> Copied!';
+      lucide.createIcons();
+      setTimeout(() => {
+        copyBtn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Diff';
+        lucide.createIcons();
+      }, 2000);
+    }
+
+    function toggleKeyVisibility() {
+      const input = document.getElementById('gemini-api-key');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
